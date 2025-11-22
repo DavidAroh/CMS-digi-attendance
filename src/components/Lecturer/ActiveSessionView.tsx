@@ -10,7 +10,10 @@ type AttendanceSession = Database['public']['Tables']['attendance_sessions']['Ro
 type AttendanceRecord = Database['public']['Tables']['attendance_records']['Row'] & {
   profiles: {
     full_name: string;
+    email: string;
     matric_number: string | null;
+    department: string | null;
+    level: string | null;
     signature_url: string | null;
   };
 };
@@ -56,7 +59,10 @@ export function ActiveSessionView({
         *,
         profiles:student_id!inner (
           full_name,
+          email,
           matric_number,
+          department,
+          level,
           signature_url
         )
       `
@@ -205,9 +211,10 @@ export function ActiveSessionView({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Student
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Matric Number
-                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Matric</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dept</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Signature
                 </th>
@@ -227,11 +234,10 @@ export function ActiveSessionView({
                       {record.profiles?.full_name}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-600">
-                      {record.profiles?.matric_number ?? ''}
-                    </div>
-                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.matric_number ?? ''}</div></td>
+                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.email ?? ''}</div></td>
+                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.department ?? ''}</div></td>
+                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.level ?? ''}</div></td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {record.profiles?.signature_url ? (
                       <a

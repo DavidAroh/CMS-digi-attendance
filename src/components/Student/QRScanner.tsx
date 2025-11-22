@@ -138,6 +138,7 @@ export function QRScanner({ onScan }: QRScannerProps) {
         className={`rounded-lg overflow-hidden ${
           isScanning ? 'block' : 'hidden'
         }`}
+        style={{ minHeight: 280 }}
       ></div>
 
       {error && (
