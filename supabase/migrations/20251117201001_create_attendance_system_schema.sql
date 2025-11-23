@@ -122,7 +122,7 @@ BEGIN
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'full_name', 'User'),
-    'student',
+    COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'student'),
     NULL,
     NULL,
     now(),
@@ -246,7 +246,7 @@ DO $$ BEGIN
   CREATE POLICY "Users can insert own profile"
     ON profiles FOR INSERT
     TO authenticated
-    WITH CHECK (auth.uid() = id AND role = 'student');
+    WITH CHECK (auth.uid() = id);
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
@@ -773,6 +773,7 @@ EXCEPTION
 END $$;
 
 -- Prevent non-admin role changes
+DROP TRIGGER IF EXISTS trg_profiles_prevent_role_change ON profiles;
 DROP FUNCTION IF EXISTS public.profiles_prevent_role_change();
 CREATE OR REPLACE FUNCTION public.profiles_prevent_role_change()
 RETURNS trigger
@@ -794,7 +795,51 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_profiles_prevent_role_change ON profiles;
 CREATE TRIGGER trg_profiles_prevent_role_change
 BEFORE UPDATE ON profiles
 FOR EACH ROW EXECUTE FUNCTION public.profiles_prevent_role_change();
+DO $$ BEGIN
+  CREATE POLICY "Admins can update profiles"
+    ON profiles FOR UPDATE
+    TO authenticated
+    USING (
+      EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = auth.uid()
+        AND p.role = 'admin'
+      )
+    )
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = auth.uid()
+        AND p.role = 'admin'
+      )
+    );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+DROP FUNCTION IF EXISTS public.set_user_role(uuid, user_role);
+CREATE OR REPLACE FUNCTION public.set_user_role(p_user_id uuid, p_role user_role)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM profiles p
+    WHERE p.id = auth.uid()
+    AND p.role = 'admin'
+  ) THEN
+    RAISE EXCEPTION 'not_allowed';
+  END IF;
+
+  UPDATE profiles
+  SET role = p_role,
+      updated_at = now()
+  WHERE id = p_user_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.set_user_role(uuid, user_role) TO authenticated;
