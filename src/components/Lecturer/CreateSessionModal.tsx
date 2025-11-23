@@ -105,6 +105,7 @@ export function CreateSessionModal({
               <option value={15}>15 minutes</option>
               <option value={30}>30 minutes</option>
               <option value={60}>60 minutes</option>
+              <option value={120}>120 minutes</option>
             </select>
           </div>
 
