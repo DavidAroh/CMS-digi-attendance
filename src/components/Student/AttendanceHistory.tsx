@@ -19,11 +19,13 @@ export function AttendanceHistory() {
   const { profile } = useAuth();
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const fetchAttendanceHistory = useCallback(async () => {
     if (!profile) return;
 
     setLoading(true);
+    setError('');
     const { data, error } = await supabase
       .from('attendance_records')
       .select(
@@ -43,7 +45,7 @@ export function AttendanceHistory() {
       .order('checked_in_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching attendance history:', error);
+      setError('Failed to load attendance history');
     } else {
       setRecords(data as AttendanceRecord[]);
     }
@@ -68,7 +70,13 @@ export function AttendanceHistory() {
         Attendance History
       </h2>
 
-      {records.length === 0 ? (
+      {error ? (
+        <div className="text-center py-12">
+          <Calendar className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">{error}</h3>
+          <p className="text-gray-600">Try again later</p>
+        </div>
+      ) : records.length === 0 ? (
         <div className="text-center py-12">
           <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">

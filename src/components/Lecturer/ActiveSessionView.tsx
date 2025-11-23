@@ -8,12 +8,9 @@ import type { Database } from '../../lib/database.types';
 type Course = Database['public']['Tables']['courses']['Row'];
 type AttendanceSession = Database['public']['Tables']['attendance_sessions']['Row'];
 type AttendanceRecord = Database['public']['Tables']['attendance_records']['Row'] & {
-  profiles: {
+  profiles?: {
     full_name: string;
-    email: string;
     matric_number: string | null;
-    department: string | null;
-    level: string | null;
     signature_url: string | null;
   };
 };
@@ -31,6 +28,8 @@ export function ActiveSessionView({
 }: ActiveSessionViewProps) {
   const [attendees, setAttendees] = useState<AttendanceRecord[]>([]);
   const [timeRemaining, setTimeRemaining] = useState('');
+  const [isFetching, setIsFetching] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<string>('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const generateQRCode = useCallback(async () => {
@@ -52,29 +51,71 @@ export function ActiveSessionView({
   }, [session.id, session.qr_token, session.expires_at]);
 
   const fetchAttendees = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('attendance_records')
-      .select(
-        `
-        *,
-        profiles:student_id!inner (
-          full_name,
-          email,
-          matric_number,
-          department,
-          level,
-          signature_url
-        )
-      `
-      )
-      .eq('session_id', session.id)
-      .order('checked_in_at', { ascending: false });
-
+    setIsFetching(true);
+    const { data, error } = await supabase.rpc('get_attendees_for_session', { p_session_id: session.id });
     if (error) {
       console.error('Error fetching attendees:', error);
-    } else {
-      setAttendees(data as AttendanceRecord[]);
+      setIsFetching(false);
+      return;
     }
+    let merged = (data || []).map((row: {
+      id: string;
+      session_id: string;
+      student_id: string;
+      checked_in_at: string;
+      check_in_method: 'QR' | 'PIN';
+      synced_from_offline: boolean | null;
+      offline_scanned_at: string | null;
+      full_name: string | null;
+      matric_number: string | null;
+      signature_url: string | null;
+      signature_name: string | null;
+    }) => ({
+      id: row.id,
+      session_id: row.session_id,
+      student_id: row.student_id,
+      checked_in_at: row.checked_in_at,
+      check_in_method: row.check_in_method,
+      synced_from_offline: row.synced_from_offline,
+      offline_scanned_at: row.offline_scanned_at,
+      profiles: {
+        full_name: row.full_name || 'Unknown',
+        matric_number: row.matric_number || null,
+        signature_url: row.signature_url || (row.signature_name ? supabase.storage.from('signatures').getPublicUrl(row.signature_name).data.publicUrl : null),
+      },
+    })) as AttendanceRecord[];
+
+    const missingSigIds = merged.filter(m => !m.profiles?.signature_url).map(m => m.student_id);
+    if (missingSigIds.length > 0) {
+      const { data: sigObjs } = await supabase
+        .from('storage.objects')
+        .select('name, owner, created_at')
+        .eq('bucket_id', 'signatures')
+        .in('owner', missingSigIds);
+      if (sigObjs && Array.isArray(sigObjs)) {
+        const latestByOwner: Record<string, { name: string; created_at: string }> = {};
+        for (const o of sigObjs as { name: string; owner: string; created_at: string }[]) {
+          if (!latestByOwner[o.owner] || new Date(o.created_at) > new Date(latestByOwner[o.owner].created_at)) {
+            latestByOwner[o.owner] = { name: o.name, created_at: o.created_at };
+          }
+        }
+        merged = await Promise.all(
+          merged.map(async (m) => {
+            if (!m.profiles?.signature_url) {
+              const obj = latestByOwner[m.student_id];
+              if (obj) {
+                const url = supabase.storage.from('signatures').getPublicUrl(obj.name).data.publicUrl;
+                return { ...m, profiles: { ...m.profiles!, signature_url: url } };
+              }
+            }
+            return m;
+          })
+        );
+      }
+    }
+    setAttendees(merged);
+    setLastUpdated(new Date().toLocaleTimeString());
+    setIsFetching(false);
   }, [session.id]);
 
   const subscribeToAttendance = useCallback(() => {
@@ -119,8 +160,10 @@ export function ActiveSessionView({
     fetchAttendees();
     const unsubscribe = subscribeToAttendance();
     const interval = setInterval(updateTimeRemaining, 1000);
+    const pollInterval = setInterval(fetchAttendees, 5000);
     return () => {
       clearInterval(interval);
+      clearInterval(pollInterval);
       unsubscribe();
     };
   }, [generateQRCode, fetchAttendees, subscribeToAttendance, updateTimeRemaining]);
@@ -201,9 +244,21 @@ export function ActiveSessionView({
       </div>
 
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Attendance List ({attendees.length})
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">
+            Attendance List ({attendees.length})
+          </h3>
+          <div className="flex items-center space-x-3">
+            <span className="text-xs text-gray-500">Last updated: {lastUpdated || '—'}</span>
+            <button
+              onClick={fetchAttendees}
+              disabled={isFetching}
+              className="px-3 py-1 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 text-sm disabled:opacity-60"
+            >
+              {isFetching ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead>
@@ -212,9 +267,6 @@ export function ActiveSessionView({
                   Student
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Matric</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dept</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Level</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Signature
                 </th>
@@ -231,13 +283,10 @@ export function ActiveSessionView({
                 <tr key={record.id}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
-                      {record.profiles?.full_name}
+                      {record.profiles?.full_name || (record.student_id ? record.student_id.slice(0, 8) : '')}
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.matric_number ?? ''}</div></td>
-                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.email ?? ''}</div></td>
-                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.department ?? ''}</div></td>
-                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.level ?? ''}</div></td>
+                  <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.matric_number ?? '—'}</div></td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {record.profiles?.signature_url ? (
                       <a

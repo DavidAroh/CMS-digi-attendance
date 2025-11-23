@@ -14,6 +14,7 @@ export function AttendanceScanner() {
   const [loading, setLoading] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   const checkPendingCheckIns = useCallback(async () => {
     const pending = await getPendingCheckIns();
@@ -26,6 +27,7 @@ export function AttendanceScanner() {
     const pending = await getPendingCheckIns();
     if (pending.length === 0) return;
 
+    setSyncing(true);
     for (const checkIn of pending) {
       try {
         const session = await supabase
@@ -61,6 +63,7 @@ export function AttendanceScanner() {
         text: `Successfully synced ${pending.length} offline check-in(s)`,
       });
     }
+    setSyncing(false);
   }, [isOnline, profile?.id, checkPendingCheckIns]);
 
   useEffect(() => {
@@ -218,8 +221,7 @@ export function AttendanceScanner() {
         {pendingCount > 0 && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
             <p className="text-sm text-yellow-800">
-              You have {pendingCount} pending check-in(s) waiting to sync.
-              {isOnline ? ' Syncing now...' : ' Will sync when online.'}
+              You have {pendingCount} pending check-in(s) waiting to sync. {isOnline ? (syncing ? ' Syncing now...' : ' Ready to sync') : ' Will sync when online.'}
             </p>
           </div>
         )}

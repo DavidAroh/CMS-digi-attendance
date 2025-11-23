@@ -61,7 +61,6 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
   type ExportRecord = {
     full_name: string;
     matric_number: string | null;
-    signature_url: string | null;
     check_in_method: Database['public']['Tables']['attendance_records']['Row']['check_in_method'];
     checked_in_at: string;
   };
@@ -73,7 +72,7 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
         `
         checked_in_at,
         check_in_method,
-        profiles:student_id!inner (full_name, matric_number, signature_url)
+        profiles:student_id (full_name, matric_number)
       `
       )
       .eq('session_id', sessionId)
@@ -87,24 +86,22 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
     const rows = (data || []) as unknown as Array<{
       checked_in_at: string;
       check_in_method: ExportRecord['check_in_method'];
-      profiles: { full_name: string; matric_number: string | null; signature_url: string | null };
+      profiles: { full_name: string; matric_number: string | null };
     }>;
 
     return rows.map((r) => ({
       full_name: r.profiles.full_name,
       matric_number: r.profiles.matric_number,
-      signature_url: r.profiles.signature_url,
       check_in_method: r.check_in_method,
       checked_in_at: r.checked_in_at,
     }));
   };
 
   const toCSV = (records: ExportRecord[]) => {
-    const header = ['Full Name', 'Matric Number', 'Signature URL', 'Method', 'Checked In At'];
+    const header = ['Full Name', 'Matric Number', 'Method', 'Checked In At'];
     const lines = records.map((r) => [
       r.full_name,
       r.matric_number ?? '',
-      r.signature_url ?? '',
       r.check_in_method,
       new Date(r.checked_in_at).toLocaleString(),
     ]);
@@ -141,7 +138,6 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
     const data = records.map((r) => ({
       'Full Name': r.full_name,
       'Matric Number': r.matric_number ?? '',
-      'Signature URL': r.signature_url ?? '',
       Method: r.check_in_method,
       'Checked In At': new Date(r.checked_in_at).toLocaleString(),
     }));
@@ -165,12 +161,11 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
     doc.setFontSize(12);
     doc.text('Full Name', left, top);
     doc.text('Matric', left + 180, top);
-    doc.text('Signature URL', left + 300, top);
-    doc.text('Method', left + 460, top);
-    doc.text('Checked In At', left + 540, top);
+    doc.text('Method', left + 300, top);
+    doc.text('Checked In At', left + 380, top);
     top += 12;
     doc.setLineWidth(0.5);
-    doc.line(left, top, 750, top);
+    doc.line(left, top, 555, top);
     top += 10;
     doc.setFontSize(11);
     const lineHeight = 16;
@@ -181,9 +176,8 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
       }
       doc.text(r.full_name, left, top);
       doc.text(r.matric_number ?? '', left + 180, top);
-      doc.text(r.signature_url ? String(r.signature_url) : '', left + 300, top);
-      doc.text(String(r.check_in_method), left + 460, top);
-      doc.text(new Date(r.checked_in_at).toLocaleString(), left + 540, top);
+      doc.text(String(r.check_in_method), left + 300, top);
+      doc.text(new Date(r.checked_in_at).toLocaleString(), left + 380, top);
       top += lineHeight;
     });
     const name = `${session.session_name.replace(/\s+/g, '_')}_${new Date(session.started_at).toISOString()}`;

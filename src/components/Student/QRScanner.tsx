@@ -33,8 +33,9 @@ export function QRScanner({ onScan }: QRScannerProps) {
         return;
       }
 
-      const scanner = new Html5Qrcode('qr-reader');
-      scannerRef.current = scanner;
+      if (!scannerRef.current) {
+        scannerRef.current = new Html5Qrcode('qr-reader');
+      }
 
       let cameraId: string | undefined;
       try {
@@ -45,8 +46,11 @@ export function QRScanner({ onScan }: QRScannerProps) {
         cameraId = undefined;
       }
 
+      // Ensure container is visible before starting to avoid blank view
+      setIsScanning(true);
+
       if (cameraId) {
-        await scanner.start(
+        await scannerRef.current.start(
           cameraId,
           {
             fps: 10,
@@ -62,7 +66,7 @@ export function QRScanner({ onScan }: QRScannerProps) {
           () => {}
         );
       } else {
-        await scanner.start(
+        await scannerRef.current.start(
           { facingMode: 'environment' },
           {
             fps: 10,
@@ -78,8 +82,6 @@ export function QRScanner({ onScan }: QRScannerProps) {
           () => {}
         );
       }
-
-      setIsScanning(true);
     } catch (err) {
       console.error('Error starting scanner:', err);
       const msg = String((err as { message?: string })?.message || err);
@@ -90,6 +92,7 @@ export function QRScanner({ onScan }: QRScannerProps) {
       } else {
         setError('Failed to start camera. Upload a photo of the QR code instead.');
       }
+      setIsScanning(false);
     }
   };
 

@@ -579,3 +579,106 @@ $func$;
 
 GRANT EXECUTE ON FUNCTION public.pin_checkin(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.pin_checkin(text) TO anon;
+
+-- Storage: signatures bucket and policies
+DO $$ BEGIN
+  INSERT INTO storage.buckets (id, name, public)
+  VALUES ('signatures', 'signatures', true);
+EXCEPTION WHEN unique_violation THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Public read signatures"
+    ON storage.objects FOR SELECT
+    USING (bucket_id = 'signatures');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN insufficient_privilege THEN NULL;
+END $$;
+
+-- Secure RPC to fetch attendees with profile data for a session (lecturer-only)
+DROP FUNCTION IF EXISTS public.get_attendees_for_session(uuid);
+CREATE OR REPLACE FUNCTION public.get_attendees_for_session(p_session_id uuid)
+RETURNS TABLE (
+  id uuid,
+  session_id uuid,
+  student_id uuid,
+  checked_in_at timestamptz,
+  check_in_method check_in_method,
+  synced_from_offline boolean,
+  offline_scanned_at timestamptz,
+  full_name text,
+  matric_number text,
+  signature_url text,
+  signature_name text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM attendance_sessions s
+    JOIN courses c ON c.id = s.course_id
+    WHERE s.id = p_session_id
+      AND (c.lecturer_id = auth.uid()
+           OR EXISTS (SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.role = 'admin'))
+  ) THEN
+    RAISE EXCEPTION 'not_allowed';
+  END IF;
+
+  RETURN QUERY
+  SELECT r.id,
+         r.session_id,
+         r.student_id,
+         r.checked_in_at,
+         r.check_in_method,
+         r.synced_from_offline,
+         r.offline_scanned_at,
+         p.full_name,
+         COALESCE(p.matric_number, u.raw_user_meta_data->>'matric_number') AS matric_number,
+         p.signature_url,
+         (
+           SELECT so.name
+           FROM storage.objects so
+           WHERE so.bucket_id = 'signatures' AND so.owner = r.student_id
+           ORDER BY so.created_at DESC
+           LIMIT 1
+         ) AS signature_name
+  FROM attendance_records r
+  LEFT JOIN profiles p ON p.id = r.student_id
+  LEFT JOIN auth.users u ON u.id = p.id
+  WHERE r.session_id = p_session_id
+  ORDER BY r.checked_in_at DESC;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_attendees_for_session(uuid) TO authenticated;
+
+DO $$ BEGIN
+  CREATE POLICY "Auth insert signatures"
+    ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'signatures');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN insufficient_privilege THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Owner update signatures"
+    ON storage.objects FOR UPDATE TO authenticated
+    USING (bucket_id = 'signatures' AND owner = auth.uid())
+    WITH CHECK (bucket_id = 'signatures' AND owner = auth.uid());
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN insufficient_privilege THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Owner delete signatures"
+    ON storage.objects FOR DELETE TO authenticated
+    USING (bucket_id = 'signatures' AND owner = auth.uid());
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN insufficient_privilege THEN NULL;
+END $$;

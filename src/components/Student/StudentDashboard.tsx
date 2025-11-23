@@ -14,18 +14,20 @@ export function StudentDashboard() {
   const [view, setView] = useState<'courses' | 'scanner' | 'history'>('courses');
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const fetchCourses = useCallback(async () => {
     if (!profile) return;
 
     setLoading(true);
+    setError('');
     const { data, error } = await supabase
       .from('course_registrations')
       .select('courses(*)')
       .eq('student_id', profile.id);
 
     if (error) {
-      console.error('Error fetching courses:', error);
+      setError('Failed to load courses');
     } else {
       type RegRow = { courses: Course };
       const rows = data as unknown as RegRow[] | null;
@@ -114,6 +116,10 @@ export function StudentDashboard() {
         {loading ? (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
+        ) : error ? (
+          <div className="text-center py-12">
+            <p className="text-red-600">{error}</p>
           </div>
         ) : (
           <>

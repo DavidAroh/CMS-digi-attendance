@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+ 
 import { UserPlus } from 'lucide-react';
 
 export function SignUpForm({ onToggle }: { onToggle: () => void }) {
@@ -169,6 +170,24 @@ export function SignUpForm({ onToggle }: { onToggle: () => void }) {
                 <option value="500">500 Level</option>
               </select>
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Upload Digital Signature (image)
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleSignatureChange}
+                className="w-full"
+              />
+              {signaturePreview && (
+                <div className="mt-2">
+                  <img src={signaturePreview} alt="Signature preview" className="h-16 object-contain border rounded" />
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mt-1">Optional now; required before first check-in.</p>
+            </div>
           </>
         )}
 
@@ -184,26 +203,6 @@ export function SignUpForm({ onToggle }: { onToggle: () => void }) {
             required
           />
         </div>
-
-        {role === 'student' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Upload Digital Signature (image)
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleSignatureChange}
-              className="w-full"
-            />
-            {signaturePreview && (
-              <div className="mt-2">
-                <img src={signaturePreview} alt="Signature preview" className="h-16 object-contain border rounded" />
-              </div>
-            )}
-            <p className="text-xs text-gray-500 mt-1">Optional now; required before first check-in.</p>
-          </div>
-        )}
 
         <button
           type="submit"

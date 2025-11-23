@@ -20,11 +20,13 @@ export function MyCourses({ courses }: MyCoursesProps) {
   const { profile } = useAuth();
   const [coursesWithStats, setCoursesWithStats] = useState<CourseWithStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   const fetchCourseStats = useCallback(async () => {
     if (!profile) return;
 
     setLoading(true);
+    setError('');
     const stats = await Promise.all(
       courses.map(async (course) => {
         const { count: totalSessions } = await supabase
@@ -72,6 +74,16 @@ export function MyCourses({ courses }: MyCoursesProps) {
     return (
       <div className="text-center py-12">
         <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-12 bg-white rounded-lg shadow">
+        <BookOpen className="w-12 h-12 text-red-400 mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-gray-900 mb-2">{error}</h3>
+        <p className="text-gray-600">Try again later</p>
       </div>
     );
   }
