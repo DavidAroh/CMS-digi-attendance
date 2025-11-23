@@ -1,75 +1,4 @@
-/*
-  # Digital Attendance System - Complete Database Schema
-  
-  1. New Tables
-    - `profiles`
-      - `id` (uuid, references auth.users)
-      - `email` (text)
-      - `full_name` (text)
-      - `matric_number` (text, nullable for lecturers/admins)
-      - `role` (enum: student, lecturer, admin)
-      - `department` (text)
-      - `level` (text, nullable for students)
-      - `notification_token` (text, nullable)
-      - `created_at` (timestamptz)
-      - `updated_at` (timestamptz)
-    
-    - `courses`
-      - `id` (uuid, primary key)
-      - `code` (text, unique)
-      - `title` (text)
-      - `department` (text)
-      - `level` (text)
-      - `semester` (text)
-      - `lecturer_id` (uuid, references profiles)
-      - `created_at` (timestamptz)
-      - `updated_at` (timestamptz)
-    
-    - `course_registrations`
-      - `id` (uuid, primary key)
-      - `course_id` (uuid, references courses)
-      - `student_id` (uuid, references profiles)
-      - `registered_at` (timestamptz)
-    
-    - `attendance_sessions`
-      - `id` (uuid, primary key)
-      - `course_id` (uuid, references courses)
-      - `session_name` (text)
-      - `qr_token` (text, unique)
-      - `pin_code` (text)
-      - `started_at` (timestamptz)
-      - `expires_at` (timestamptz)
-      - `ended_at` (timestamptz, nullable)
-      - `is_active` (boolean)
-      - `created_by` (uuid, references profiles)
-    
-    - `attendance_records`
-      - `id` (uuid, primary key)
-      - `session_id` (uuid, references attendance_sessions)
-      - `student_id` (uuid, references profiles)
-      - `checked_in_at` (timestamptz)
-      - `check_in_method` (enum: qr, pin, offline_qr)
-      - `synced_from_offline` (boolean)
-      - `offline_scanned_at` (timestamptz, nullable)
-    
-    - `notification_queue`
-      - `id` (uuid, primary key)
-      - `user_id` (uuid, references profiles)
-      - `title` (text)
-      - `message` (text)
-      - `type` (text)
-      - `sent` (boolean)
-      - `created_at` (timestamptz)
-
-  2. Security
-    - Enable RLS on all tables
-    - Add policies for students, lecturers, and admins
-    - Ensure data isolation and proper access control
-
-  3. Indexes
-    - Add indexes for frequently queried columns
-    - Optimize for real-time queries
-*/
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Create enum types
 DO $$ BEGIN
@@ -177,6 +106,14 @@ CREATE TABLE IF NOT EXISTS courses (
 );
 
 ALTER TABLE courses ENABLE ROW LEVEL SECURITY;
+
+-- Relax global uniqueness on code; enforce uniqueness per lecturer
+ALTER TABLE courses DROP CONSTRAINT IF EXISTS courses_code_key;
+DO $$ BEGIN
+  ALTER TABLE courses ADD CONSTRAINT courses_code_lecturer_unique UNIQUE (code, lecturer_id);
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Create course_registrations table
 CREATE TABLE IF NOT EXISTS course_registrations (
@@ -744,6 +681,15 @@ DO $$ BEGIN
     ON storage.objects FOR UPDATE TO authenticated
     USING (bucket_id = 'signatures' AND owner = auth.uid())
     WITH CHECK (bucket_id = 'signatures' AND owner = auth.uid());
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN insufficient_privilege THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Owner delete signatures"
+    ON storage.objects FOR DELETE TO authenticated
+    USING (bucket_id = 'signatures' AND owner = auth.uid());
 EXCEPTION
   WHEN duplicate_object THEN NULL;
   WHEN insufficient_privilege THEN NULL;

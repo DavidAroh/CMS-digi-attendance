@@ -29,19 +29,27 @@ export function CreateCourseModal({
     setLoading(true);
 
     try {
-      const { error: insertError } = await supabase.from('courses').insert({
-        code: formData.code,
-        title: formData.title,
-        department: formData.department,
-        level: formData.level,
-        semester: formData.semester,
-        lecturer_id: profile?.id,
-      });
+      const { error: upsertError } = await supabase.from('courses').upsert(
+        {
+          code: formData.code.trim(),
+          title: formData.title.trim(),
+          department: formData.department.trim(),
+          level: formData.level.trim(),
+          semester: formData.semester.trim(),
+          lecturer_id: profile?.id,
+        },
+        { onConflict: 'code,lecturer_id' }
+      );
 
-      if (insertError) throw insertError;
+      if (upsertError) throw upsertError;
       onCourseCreated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create course');
+      const msg = String((err as { message?: string })?.message || err);
+      if (/duplicate|conflict|409/i.test(msg)) {
+        setError('Course code already exists for you. Choose a different code.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to create course');
+      }
     } finally {
       setLoading(false);
     }
