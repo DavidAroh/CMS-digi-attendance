@@ -92,13 +92,13 @@ export function AttendanceScanner() {
   }, [isOnline, syncPendingCheckIns]);
 
 
-  const handleQRScan = async (data: string) => {
+  const handleQRScan = async (encoded: string) => {
     if (loading) return;
     setLoading(true);
     setMessage(null);
 
     try {
-      const sessionData = decodeSessionData(data);
+      const sessionData = decodeSessionData(encoded);
       if (!sessionData) {
         setMessage({ type: 'error', text: 'Invalid QR code' });
         setLoading(false);
@@ -127,39 +127,25 @@ export function AttendanceScanner() {
         return;
       }
 
-      const { data: session, error: sessionError } = await supabase
-        .from('attendance_sessions')
-        .select('*')
-        .eq('id', sessionData.sessionId)
-        .eq('qr_token', sessionData.qrToken)
-        .maybeSingle();
+      const { data: rpcData, error } = await supabase.rpc('qr_checkin', {
+        p_session_id: sessionData.sessionId,
+        p_qr_token: sessionData.qrToken,
+      });
 
-      if (sessionError || !session) {
-        setMessage({ type: 'error', text: 'Invalid or expired session' });
-        setLoading(false);
-        return;
-      }
+      const resp: { ok?: boolean; error?: string } | null = rpcData as unknown as { ok?: boolean; error?: string } | null;
 
-      if (isSessionExpired(session.expires_at)) {
-        setMessage({ type: 'error', text: 'This session has expired' });
-        setLoading(false);
-        return;
-      }
-
-      const { error: insertError } = await supabase
-        .from('attendance_records')
-        .insert({
-          session_id: session.id,
-          student_id: profile?.id,
-          check_in_method: 'qr',
-        });
-
-      if (insertError) {
-        if (insertError.code === '23505') {
-          setMessage({ type: 'error', text: 'You have already checked in' });
-        } else {
-          setMessage({ type: 'error', text: 'Failed to check in' });
-        }
+      if (error || (resp && resp.error)) {
+        const err = resp?.error ?? (typeof error === 'object' && error && 'message' in (error as unknown as { message?: string })
+          ? String((error as unknown as { message?: string }).message)
+          : 'Failed to check in');
+        const text = err === 'duplicate'
+          ? 'You have already checked in'
+          : err === 'expired'
+          ? 'This session has expired'
+          : err === 'invalid'
+          ? 'Invalid or expired session'
+          : String(err);
+        setMessage({ type: 'error', text });
       } else {
         setMessage({ type: 'success', text: 'Successfully checked in!' });
       }

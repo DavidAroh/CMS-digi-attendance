@@ -580,6 +580,44 @@ $func$;
 GRANT EXECUTE ON FUNCTION public.pin_checkin(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.pin_checkin(text) TO anon;
 
+-- QR check-in RPC function (server-side, RLS-safe)
+DROP FUNCTION IF EXISTS public.qr_checkin(uuid, text);
+CREATE OR REPLACE FUNCTION public.qr_checkin(p_session_id uuid, p_qr_token text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $func$
+DECLARE
+  v_session attendance_sessions%ROWTYPE;
+BEGIN
+  SELECT * INTO v_session
+  FROM attendance_sessions
+  WHERE id = p_session_id
+    AND qr_token = p_qr_token
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('error', 'invalid');
+  END IF;
+
+  IF v_session.expires_at < now() THEN
+    RETURN jsonb_build_object('error', 'expired');
+  END IF;
+
+  BEGIN
+    INSERT INTO attendance_records (session_id, student_id, check_in_method)
+    VALUES (v_session.id, auth.uid(), 'qr');
+  EXCEPTION WHEN unique_violation THEN
+    RETURN jsonb_build_object('error', 'duplicate');
+  END;
+
+  RETURN jsonb_build_object('ok', true);
+END;
+$func$;
+
+GRANT EXECUTE ON FUNCTION public.qr_checkin(uuid, text) TO authenticated;
+
 -- Storage: signatures bucket and policies
 DO $$ BEGIN
   INSERT INTO storage.buckets (id, name, public)
