@@ -132,11 +132,16 @@ export function AttendanceScanner() {
         .select('*')
         .eq('id', sessionData.sessionId)
         .eq('qr_token', sessionData.qrToken)
-        .eq('is_active', true)
         .maybeSingle();
 
       if (sessionError || !session) {
         setMessage({ type: 'error', text: 'Invalid or expired session' });
+        setLoading(false);
+        return;
+      }
+
+      if (isSessionExpired(session.expires_at)) {
+        setMessage({ type: 'error', text: 'This session has expired' });
         setLoading(false);
         return;
       }

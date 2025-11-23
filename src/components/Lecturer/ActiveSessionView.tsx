@@ -185,6 +185,7 @@ export function ActiveSessionView({
     };
   }, [generateQRCode, fetchAttendees, subscribeToAttendance, updateTimeRemaining]);
 
+
   const handleEndSession = async () => {
     const { error } = await supabase
       .from('attendance_sessions')
@@ -306,14 +307,13 @@ export function ActiveSessionView({
                   <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm text-gray-600">{record.profiles?.matric_number ?? '—'}</div></td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {record.profiles?.signature_url ? (
-                      <a
-                        href={record.profiles.signature_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-blue-600 hover:underline text-sm"
-                      >
-                        Download
-                      </a>
+                      <div className="flex items-center space-x-3">
+                        <img
+                          src={record.profiles.signature_url}
+                          alt="Signature"
+                          className="h-12 w-auto border border-gray-200 rounded"
+                        />
+                       </div>
                     ) : (
                       <span className="text-gray-400 text-sm">None</span>
                     )}

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Calendar, Users } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import type { Database } from '../../lib/database.types';
 
@@ -63,47 +62,40 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
     matric_number: string | null;
     check_in_method: Database['public']['Tables']['attendance_records']['Row']['check_in_method'];
     checked_in_at: string;
+    signature_url: string | null;
   };
 
   const fetchSessionRecords = async (sessionId: string): Promise<ExportRecord[]> => {
-    const { data, error } = await supabase
-      .from('attendance_records')
-      .select(
-        `
-        checked_in_at,
-        check_in_method,
-        profiles:student_id (full_name, matric_number)
-      `
-      )
-      .eq('session_id', sessionId)
-      .order('checked_in_at', { ascending: true });
-
+    const { data, error } = await supabase.rpc('get_attendees_for_session', { p_session_id: sessionId });
     if (error) {
       console.error('Error fetching session records:', error);
       return [];
     }
-
     const rows = (data || []) as unknown as Array<{
       checked_in_at: string;
       check_in_method: ExportRecord['check_in_method'];
-      profiles: { full_name: string; matric_number: string | null };
+      full_name: string | null;
+      matric_number: string | null;
+      signature_url: string | null;
+      signature_name: string | null;
     }>;
-
     return rows.map((r) => ({
-      full_name: r.profiles.full_name,
-      matric_number: r.profiles.matric_number,
+      full_name: r.full_name || 'Unknown',
+      matric_number: r.matric_number,
       check_in_method: r.check_in_method,
       checked_in_at: r.checked_in_at,
+      signature_url: r.signature_url || (r.signature_name ? supabase.storage.from('signatures').getPublicUrl(r.signature_name).data.publicUrl : null),
     }));
   };
 
   const toCSV = (records: ExportRecord[]) => {
-    const header = ['Full Name', 'Matric Number', 'Method', 'Checked In At'];
+    const header = ['Full Name', 'Matric Number', 'Method', 'Checked In At', 'Signature'];
     const lines = records.map((r) => [
       r.full_name,
       r.matric_number ?? '',
       r.check_in_method,
       new Date(r.checked_in_at).toLocaleString(),
+      r.signature_url ?? '',
     ]);
     const csv = [header, ...lines]
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -132,20 +124,57 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
     setExporting(null);
   };
 
+  const fetchImageDataUrl = async (url: string): Promise<string | null> => {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      }).catch(() => null);
+    } catch {
+      return null;
+    }
+  };
+
   const exportExcel = async (session: SessionWithCount) => {
     setExporting(session.id);
     const records = await fetchSessionRecords(session.id);
-    const data = records.map((r) => ({
-      'Full Name': r.full_name,
-      'Matric Number': r.matric_number ?? '',
-      Method: r.check_in_method,
-      'Checked In At': new Date(r.checked_in_at).toLocaleString(),
-    }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
     const name = `${session.session_name.replace(/\s+/g, '_')}_${new Date(session.started_at).toISOString()}`;
-    XLSX.writeFile(wb, `${name}.xlsx`);
+    const rowsHtml = await Promise.all(
+      records.map(async (r) => {
+        const sig = r.signature_url ? await fetchImageDataUrl(r.signature_url) : null;
+        const imgHtml = sig ? `<img src="${sig}" style="height:40px;border:1px solid #ddd;border-radius:4px" />` : '';
+        return `<tr>
+          <td>${String(r.full_name)}</td>
+          <td>${String(r.matric_number ?? '')}</td>
+          <td>${String(r.check_in_method)}</td>
+          <td>${new Date(r.checked_in_at).toLocaleString()}</td>
+          <td>${imgHtml}</td>
+        </tr>`;
+      })
+    );
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${name}</title></head><body>
+      <table border="1" cellspacing="0" cellpadding="4">
+        <thead><tr>
+          <th>Full Name</th><th>Matric Number</th><th>Method</th><th>Checked In At</th><th>Signature</th>
+        </tr></thead>
+        <tbody>
+          ${rowsHtml.join('')}
+        </tbody>
+      </table>
+    </body></html>`;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.xls`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
     setExporting(null);
   };
 
@@ -163,23 +192,42 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
     doc.text('Matric', left + 180, top);
     doc.text('Method', left + 300, top);
     doc.text('Checked In At', left + 380, top);
+    doc.text('Signature', left + 500, top);
     top += 12;
     doc.setLineWidth(0.5);
     doc.line(left, top, 555, top);
     top += 10;
     doc.setFontSize(11);
-    const lineHeight = 16;
-    records.forEach((r) => {
-      if (top > 770) {
+    const rowHeight = 60;
+    for (const r of records) {
+      if (top + rowHeight > 770) {
         doc.addPage();
         top = 50;
+        doc.setFontSize(12);
+        doc.text('Full Name', left, top);
+        doc.text('Matric', left + 180, top);
+        doc.text('Method', left + 300, top);
+        doc.text('Checked In At', left + 380, top);
+        doc.text('Signature', left + 500, top);
+        top += 12;
+        doc.setLineWidth(0.5);
+        doc.line(left, top, 555, top);
+        top += 10;
+        doc.setFontSize(11);
       }
-      doc.text(r.full_name, left, top);
-      doc.text(r.matric_number ?? '', left + 180, top);
-      doc.text(String(r.check_in_method), left + 300, top);
-      doc.text(new Date(r.checked_in_at).toLocaleString(), left + 380, top);
-      top += lineHeight;
-    });
+      doc.text(r.full_name, left, top + 20);
+      doc.text(r.matric_number ?? '', left + 180, top + 20);
+      doc.text(String(r.check_in_method), left + 300, top + 20);
+      doc.text(new Date(r.checked_in_at).toLocaleString(), left + 380, top + 20);
+      if (r.signature_url) {
+        const dataUrl = await fetchImageDataUrl(r.signature_url);
+        if (dataUrl) {
+          const fmt = /data:image\/png/i.test(dataUrl) ? 'PNG' : 'JPEG';
+          doc.addImage(dataUrl, fmt, left + 500, top, 60, 40);
+        }
+      }
+      top += rowHeight;
+    }
     const name = `${session.session_name.replace(/\s+/g, '_')}_${new Date(session.started_at).toISOString()}`;
     doc.save(`${name}.pdf`);
     setExporting(null);
