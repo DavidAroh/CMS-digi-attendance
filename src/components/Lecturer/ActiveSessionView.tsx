@@ -112,6 +112,23 @@ export function ActiveSessionView({
           })
         );
       }
+
+      const stillMissing = merged.filter(m => !m.profiles?.signature_url);
+      if (stillMissing.length > 0) {
+        merged = await Promise.all(
+          merged.map(async (m) => {
+            if (!m.profiles?.signature_url) {
+              const list = await supabase.storage.from('signatures').list('', { search: m.student_id, limit: 10 });
+              const entry = (list.data || []).sort((a, b) => new Date(b.updated_at || '').getTime() - new Date(a.updated_at || '').getTime())[0];
+              if (entry) {
+                const url = supabase.storage.from('signatures').getPublicUrl(entry.name).data.publicUrl;
+                return { ...m, profiles: { ...m.profiles!, signature_url: url } };
+              }
+            }
+            return m;
+          })
+        );
+      }
     }
     setAttendees(merged);
     setLastUpdated(new Date().toLocaleTimeString());

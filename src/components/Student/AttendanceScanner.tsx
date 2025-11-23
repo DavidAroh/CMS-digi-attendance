@@ -3,11 +3,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { decodeSessionData, isSessionExpired } from '../../utils/qrCode';
 import { saveOfflineCheckIn, getPendingCheckIns, removeCheckIn } from '../../utils/offlineSync';
-import { QrCode, Hash, CheckCircle, XCircle, Wifi, WifiOff } from 'lucide-react';
+import { QrCode, Hash, CheckCircle, XCircle, Wifi, WifiOff, Upload, Image as ImageIcon } from 'lucide-react';
 import { QRScanner } from './QRScanner';
 
 export function AttendanceScanner() {
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const [mode, setMode] = useState<'qr' | 'pin'>('qr');
   const [pin, setPin] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -15,6 +15,9 @@ export function AttendanceScanner() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [sigFile, setSigFile] = useState<File | null>(null);
+  const [sigUploading, setSigUploading] = useState(false);
+  const [sigMsg, setSigMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const checkPendingCheckIns = useCallback(async () => {
     const pending = await getPendingCheckIns();
@@ -196,6 +199,40 @@ export function AttendanceScanner() {
     }
   };
 
+  const handleSignatureUpload = async () => {
+    if (!profile || !sigFile || sigUploading) return;
+    setSigMsg(null);
+    setSigUploading(true);
+    try {
+      const ext = sigFile.type.includes('png') ? 'png' : sigFile.type.includes('jpeg') ? 'jpg' : 'webp';
+      const path = `signatures/${profile.id}-${Date.now()}.${ext}`;
+      const uploadRes = await supabase.storage.from('signatures').upload(path, sigFile, {
+        contentType: sigFile.type,
+        upsert: true,
+      });
+      if (uploadRes.error) {
+        setSigMsg({ type: 'error', text: 'Failed to upload signature' });
+      } else {
+        const { data: pub } = supabase.storage.from('signatures').getPublicUrl(path);
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ signature_url: pub.publicUrl })
+          .eq('id', profile.id);
+        if (updateError) {
+          setSigMsg({ type: 'error', text: 'Failed to save signature' });
+        } else {
+          await refreshProfile();
+          setSigMsg({ type: 'success', text: 'Signature updated' });
+          setSigFile(null);
+        }
+      }
+    } catch {
+      setSigMsg({ type: 'error', text: 'An error occurred' });
+    } finally {
+      setSigUploading(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="bg-white rounded-lg shadow-md p-6">
@@ -300,6 +337,54 @@ export function AttendanceScanner() {
             )}
           </form>
         )}
+      </div>
+      <div className="bg-white rounded-lg shadow-md p-6 mt-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Update Signature</h3>
+          {profile?.signature_url ? (
+            <div className="flex items-center text-gray-600 text-sm">
+              <ImageIcon className="w-4 h-4 mr-2" />
+              Current signature
+            </div>
+          ) : (
+            <div className="flex items-center text-gray-600 text-sm">
+              <ImageIcon className="w-4 h-4 mr-2" />
+              No signature on file
+            </div>
+          )}
+        </div>
+        {profile?.signature_url && (
+          <div className="mb-4">
+            <img
+              src={profile.signature_url}
+              alt="Signature"
+              className="max-h-24 border border-gray-200 rounded"
+            />
+          </div>
+        )}
+        <div className="space-y-3">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => setSigFile(e.target.files?.[0] || null)}
+            className="w-full"
+          />
+          <button
+            onClick={handleSignatureUpload}
+            disabled={!sigFile || sigUploading}
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-400"
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            {sigUploading ? 'Uploading…' : 'Upload Signature'}
+          </button>
+          {sigMsg && (
+            <div
+              className={`p-3 rounded ${sigMsg.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}
+            >
+              {sigMsg.text}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

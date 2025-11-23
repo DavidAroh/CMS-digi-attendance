@@ -63,6 +63,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           const profileData = await fetchProfile(session.user.id);
           setProfile(profileData);
+          const metadata = session.user.user_metadata as Record<string, unknown> | null;
+          const sigB64 = (metadata?.signature_base64 as string | null) || null;
+          if (sigB64 && (!profileData || !profileData.signature_url)) {
+            try {
+              const match = sigB64.match(/^data:(.*?);base64,(.*)$/);
+              if (match) {
+                const mime = match[1];
+                const b64 = match[2];
+                const binary = atob(b64);
+                const array = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
+                const blob = new Blob([array], { type: mime });
+                const ext = mime.includes('png') ? 'png' : mime.includes('jpeg') ? 'jpg' : 'webp';
+                const path = `signatures/${session.user.id}-${Date.now()}.${ext}`;
+                const uploadRes = await supabase.storage.from('signatures').upload(path, blob, { contentType: mime, upsert: true });
+                if (!uploadRes.error) {
+                  const { data: pub } = supabase.storage.from('signatures').getPublicUrl(path);
+                  await supabase.from('profiles').update({ signature_url: pub.publicUrl }).eq('id', session.user.id);
+                  await supabase.auth.updateUser({ data: { signature_base64: null } });
+                  const refreshed = await fetchProfile(session.user.id);
+                  setProfile(refreshed);
+                }
+              }
+            } catch {
+              void 0;
+            }
+          }
         }
         setLoading(false);
       })();
@@ -81,6 +108,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             profileData = ensured;
           }
           setProfile(profileData);
+          const metadata = session.user.user_metadata as Record<string, unknown> | null;
+          const sigB64 = (metadata?.signature_base64 as string | null) || null;
+          if (sigB64 && (!profileData || !profileData.signature_url)) {
+            try {
+              const match = sigB64.match(/^data:(.*?);base64,(.*)$/);
+              if (match) {
+                const mime = match[1];
+                const b64 = match[2];
+                const binary = atob(b64);
+                const array = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
+                const blob = new Blob([array], { type: mime });
+                const ext = mime.includes('png') ? 'png' : mime.includes('jpeg') ? 'jpg' : 'webp';
+                const path = `signatures/${session.user.id}-${Date.now()}.${ext}`;
+                const uploadRes = await supabase.storage.from('signatures').upload(path, blob, { contentType: mime, upsert: true });
+                if (!uploadRes.error) {
+                  const { data: pub } = supabase.storage.from('signatures').getPublicUrl(path);
+                  await supabase.from('profiles').update({ signature_url: pub.publicUrl }).eq('id', session.user.id);
+                  await supabase.auth.updateUser({ data: { signature_base64: null } });
+                  const refreshed = await fetchProfile(session.user.id);
+                  setProfile(refreshed);
+                }
+              }
+            } catch {
+              void 0;
+            }
+          }
         } else {
           setProfile(null);
         }
@@ -110,6 +164,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     signatureFile?: File | null
   ) => {
+    let signatureBase64: string | null = null;
+    if (signatureFile) {
+      signatureBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(signatureFile);
+      }).catch(() => null);
+    }
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -120,6 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           matric_number: userData.matric_number || null,
           department: userData.department || null,
           level: userData.level || null,
+          signature_base64: signatureBase64,
         },
       },
     });
