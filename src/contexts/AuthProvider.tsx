@@ -63,8 +63,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           const profileData = await fetchProfile(session.user.id);
           setProfile(profileData);
-          const metadata = session.user.user_metadata as Record<string, unknown> | null;
-          const sigB64 = (metadata?.signature_base64 as string | null) || null;
+          let sigB64: string | null = null;
+          try {
+            sigB64 = localStorage.getItem(`pending_signature_${session.user.id}`);
+          } catch {
+            sigB64 = null;
+          }
           if (sigB64 && (!profileData || !profileData.signature_url)) {
             try {
               const match = sigB64.match(/^data:(.*?);base64,(.*)$/);
@@ -81,7 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (!uploadRes.error) {
                   const { data: pub } = supabase.storage.from('signatures').getPublicUrl(path);
                   await supabase.from('profiles').update({ signature_url: pub.publicUrl }).eq('id', session.user.id);
-                  await supabase.auth.updateUser({ data: { signature_base64: null } });
+                  try { localStorage.removeItem(`pending_signature_${session.user.id}`); } catch { void 0; }
                   const refreshed = await fetchProfile(session.user.id);
                   setProfile(refreshed);
                 }
@@ -108,8 +112,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             profileData = ensured;
           }
           setProfile(profileData);
-          const metadata = session.user.user_metadata as Record<string, unknown> | null;
-          const sigB64 = (metadata?.signature_base64 as string | null) || null;
+          let sigB64: string | null = null;
+          try {
+            sigB64 = localStorage.getItem(`pending_signature_${session.user.id}`);
+          } catch {
+            sigB64 = null;
+          }
           if (sigB64 && (!profileData || !profileData.signature_url)) {
             try {
               const match = sigB64.match(/^data:(.*?);base64,(.*)$/);
@@ -126,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 if (!uploadRes.error) {
                   const { data: pub } = supabase.storage.from('signatures').getPublicUrl(path);
                   await supabase.from('profiles').update({ signature_url: pub.publicUrl }).eq('id', session.user.id);
-                  await supabase.auth.updateUser({ data: { signature_base64: null } });
+                  try { localStorage.removeItem(`pending_signature_${session.user.id}`); } catch { void 0; }
                   const refreshed = await fetchProfile(session.user.id);
                   setProfile(refreshed);
                 }
@@ -145,11 +153,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [ensureProfileExists]);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) throw error;
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } catch (err) {
+      const msg = String((err as { message?: string })?.message || err);
+      if (/Failed to fetch/i.test(msg)) {
+        throw new Error('Network error: Check internet connection and Supabase URL/key configuration');
+      }
+      throw err instanceof Error ? err : new Error('Sign in failed');
+    }
   };
 
   const signUp = async (
@@ -184,7 +197,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           matric_number: userData.matric_number || null,
           department: userData.department || null,
           level: userData.level || null,
-          signature_base64: signatureBase64,
         },
       },
     });
@@ -219,6 +231,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           signature_url: signatureUrl,
         }, { onConflict: 'id' });
       if (profileError) throw profileError;
+    } else if (signatureBase64 && data.user) {
+      try {
+        localStorage.setItem(`pending_signature_${data.user.id}`, signatureBase64);
+      } catch {
+        void 0;
+      }
     }
   };
 
