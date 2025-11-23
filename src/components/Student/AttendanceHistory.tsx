@@ -4,20 +4,20 @@ import { supabase } from '../../lib/supabase';
 import { Calendar, CheckCircle } from 'lucide-react';
 import type { Database } from '../../lib/database.types';
 
-type AttendanceRecord = Database['public']['Tables']['attendance_records']['Row'] & {
-  attendance_sessions: {
-    session_name: string;
-    started_at: string;
-    courses: {
-      code: string;
-      title: string;
-    };
-  };
+type HistoryRow = {
+  checked_in_at: string;
+  check_in_method: Database['public']['Tables']['attendance_records']['Row']['check_in_method'];
+  synced_from_offline: boolean | null;
+  offline_scanned_at: string | null;
+  session_name: string;
+  started_at: string;
+  course_code: string;
+  course_title: string;
 };
 
 export function AttendanceHistory() {
   const { profile } = useAuth();
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [records, setRecords] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -26,28 +26,11 @@ export function AttendanceHistory() {
 
     setLoading(true);
     setError('');
-    const { data, error } = await supabase
-      .from('attendance_records')
-      .select(
-        `
-        *,
-        attendance_sessions!inner (
-          session_name,
-          started_at,
-          courses!inner (
-            code,
-            title
-          )
-        )
-      `
-      )
-      .eq('student_id', profile.id)
-      .order('checked_in_at', { ascending: false });
-
+    const { data, error } = await supabase.rpc('get_attendance_history_for_current_user');
     if (error) {
       setError('Failed to load attendance history');
     } else {
-      setRecords(data as AttendanceRecord[]);
+      setRecords((data || []) as HistoryRow[]);
     }
     setLoading(false);
   }, [profile]);
@@ -90,7 +73,7 @@ export function AttendanceHistory() {
         <div className="space-y-4">
           {records.map((record) => (
             <div
-              key={record.id}
+              key={`${record.checked_in_at}-${record.session_name}`}
               className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-start justify-between">
@@ -98,17 +81,15 @@ export function AttendanceHistory() {
                   <div className="flex items-center mb-2">
                     <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
                     <h3 className="font-medium text-gray-900">
-                      {record.attendance_sessions.courses.code} -{' '}
-                      {record.attendance_sessions.session_name}
+                      {record.course_code} - {record.session_name}
                     </h3>
                   </div>
                   <p className="text-sm text-gray-600 mb-1">
-                    {record.attendance_sessions.courses.title}
+                    {record.course_title}
                   </p>
                   <div className="flex items-center text-sm text-gray-500">
                     <Calendar className="w-4 h-4 mr-1" />
-                    {new Date(record.checked_in_at).toLocaleDateString()} at{' '}
-                    {new Date(record.checked_in_at).toLocaleTimeString()}
+                    {new Date(record.checked_in_at).toLocaleDateString()} at {new Date(record.checked_in_at).toLocaleTimeString()}
                   </div>
                 </div>
                 <div className="flex flex-col items-end">

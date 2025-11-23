@@ -618,6 +618,43 @@ $func$;
 
 GRANT EXECUTE ON FUNCTION public.qr_checkin(uuid, text) TO authenticated;
 
+-- Student attendance history RPC (server-side, RLS-safe)
+DROP FUNCTION IF EXISTS public.get_attendance_history_for_current_user();
+CREATE OR REPLACE FUNCTION public.get_attendance_history_for_current_user()
+RETURNS TABLE (
+  checked_in_at timestamptz,
+  check_in_method check_in_method,
+  synced_from_offline boolean,
+  offline_scanned_at timestamptz,
+  session_name text,
+  started_at timestamptz,
+  course_code text,
+  course_title text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT r.checked_in_at,
+         r.check_in_method,
+         r.synced_from_offline,
+         r.offline_scanned_at,
+         s.session_name,
+         s.started_at,
+         c.code,
+         c.title
+  FROM attendance_records r
+  JOIN attendance_sessions s ON s.id = r.session_id
+  JOIN courses c ON c.id = s.course_id
+  WHERE r.student_id = auth.uid()
+  ORDER BY r.checked_in_at DESC;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_attendance_history_for_current_user() TO authenticated;
+
 -- Storage: signatures bucket and policies
 DO $$ BEGIN
   INSERT INTO storage.buckets (id, name, public)
