@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from '../lib/supabase';
 import type { Database } from '../lib/database.types';
 import { AuthContext, type AuthContextType } from './AuthContext';
 
@@ -19,9 +19,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .eq('id', userId)
       .maybeSingle();
 
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return null;
+    if (error || !data) {
+      try {
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+        const url = `${SUPABASE_URL}/rest/v1/profiles?select=*&id=eq.${encodeURIComponent(userId)}`;
+        const res = await fetch(url, {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        });
+        if (!res.ok) return null;
+        const arr = await res.json();
+        return Array.isArray(arr) && arr.length > 0 ? (arr[0] as Profile) : null;
+      } catch (e) {
+        console.error('Error fetching profile:', e);
+        return null;
+      }
     }
     return data;
   };
