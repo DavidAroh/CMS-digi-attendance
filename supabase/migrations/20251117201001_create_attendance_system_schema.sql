@@ -122,7 +122,7 @@ BEGIN
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'full_name', 'User'),
-    COALESCE((NEW.raw_user_meta_data->>'role')::user_role, 'student'),
+    'student',
     NULL,
     NULL,
     now(),
@@ -131,7 +131,7 @@ BEGIN
   ON CONFLICT (id) DO UPDATE SET
     email = EXCLUDED.email,
     full_name = COALESCE(NEW.raw_user_meta_data->>'full_name', public.profiles.full_name),
-    role = COALESCE((NEW.raw_user_meta_data->>'role')::user_role, public.profiles.role),
+    role = public.profiles.role,
     updated_at = now();
 
   RETURN NEW;
@@ -246,7 +246,7 @@ DO $$ BEGIN
   CREATE POLICY "Users can insert own profile"
     ON profiles FOR INSERT
     TO authenticated
-    WITH CHECK (auth.uid() = id);
+    WITH CHECK (auth.uid() = id AND role = 'student');
 EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
@@ -757,3 +757,44 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
   WHEN insufficient_privilege THEN NULL;
 END $$;
+DO $$ BEGIN
+  CREATE POLICY "Admins can insert profiles"
+    ON profiles FOR INSERT
+    TO authenticated
+    WITH CHECK (
+      EXISTS (
+        SELECT 1 FROM profiles p
+        WHERE p.id = auth.uid()
+        AND p.role = 'admin'
+      )
+    );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Prevent non-admin role changes
+DROP FUNCTION IF EXISTS public.profiles_prevent_role_change();
+CREATE OR REPLACE FUNCTION public.profiles_prevent_role_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.role IS DISTINCT FROM OLD.role THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+      AND p.role = 'admin'
+    ) THEN
+      RAISE EXCEPTION 'role_change_not_allowed';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_profiles_prevent_role_change ON profiles;
+CREATE TRIGGER trg_profiles_prevent_role_change
+BEFORE UPDATE ON profiles
+FOR EACH ROW EXECUTE FUNCTION public.profiles_prevent_role_change();

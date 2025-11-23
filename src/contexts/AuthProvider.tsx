@@ -22,11 +22,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error || !data) {
       try {
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+        const { data: sess } = await supabase.auth.getSession();
+        const accessToken = sess.session?.access_token;
+        if (!accessToken) return null;
         const url = `${SUPABASE_URL}/rest/v1/profiles?select=*&id=eq.${encodeURIComponent(userId)}`;
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            Authorization: `Bearer ${accessToken}`,
           },
         });
         if (!res.ok) return null;
