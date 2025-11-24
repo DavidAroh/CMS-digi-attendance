@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { Calendar, Users } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import type { Database } from '../../lib/database.types';
+import ExcelJS from 'exceljs';
 
 type AttendanceSession = Database['public']['Tables']['attendance_sessions']['Row'];
 
@@ -143,34 +144,56 @@ export function SessionHistory({ courseId }: SessionHistoryProps) {
     setExporting(session.id);
     const records = await fetchSessionRecords(session.id);
     const name = `${session.session_name.replace(/\s+/g, '_')}_${new Date(session.started_at).toISOString()}`;
-    const rowsHtml = await Promise.all(
-      records.map(async (r) => {
-        const sig = r.signature_url ? await fetchImageDataUrl(r.signature_url) : null;
-        const imgHtml = sig ? `<img src="${sig}" style="height:40px;border:1px solid #ddd;border-radius:4px" />` : '';
-        return `<tr>
-          <td>${String(r.full_name)}</td>
-          <td>${String(r.matric_number ?? '')}</td>
-          <td>${String(r.check_in_method)}</td>
-          <td>${new Date(r.checked_in_at).toLocaleString()}</td>
-          <td>${imgHtml}</td>
-        </tr>`;
-      })
-    );
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${name}</title></head><body>
-      <table border="1" cellspacing="0" cellpadding="4">
-        <thead><tr>
-          <th>Full Name</th><th>Matric Number</th><th>Method</th><th>Checked In At</th><th>Signature</th>
-        </tr></thead>
-        <tbody>
-          ${rowsHtml.join('')}
-        </tbody>
-      </table>
-    </body></html>`;
-    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const wb = new ExcelJS.Workbook();
+    const sheet = wb.addWorksheet('Attendance');
+    sheet.columns = [
+      { header: 'Full Name', key: 'full_name', width: 30 },
+      { header: 'Matric Number', key: 'matric_number', width: 18 },
+      { header: 'Method', key: 'method', width: 12 },
+      { header: 'Checked In At', key: 'checked_in_at', width: 24 },
+      { header: 'Signature', key: 'signature', width: 20 },
+    ];
+
+    const imageHeights: number[] = [];
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      const rowIndex = i + 2; // 1-based, row 1 is header
+      sheet.addRow({
+        full_name: r.full_name,
+        matric_number: r.matric_number ?? '',
+        method: String(r.check_in_method),
+        checked_in_at: new Date(r.checked_in_at).toLocaleString(),
+        signature: '',
+      });
+      let height = 20;
+      if (r.signature_url) {
+        const dataUrl = await fetchImageDataUrl(r.signature_url);
+        if (dataUrl) {
+          const fmt = /data:image\/png/i.test(dataUrl) ? 'png' : 'jpeg';
+          const imgId = wb.addImage({ base64: dataUrl, extension: fmt });
+          const imgWidth = 120;
+          const imgHeight = 50;
+          sheet.addImage(imgId, {
+            tl: { col: 4, row: rowIndex - 1 },
+            ext: { width: imgWidth, height: imgHeight },
+          });
+          height = Math.max(height, 40);
+        }
+      }
+      imageHeights[rowIndex] = height;
+    }
+
+    imageHeights.forEach((h, idx) => {
+      const row = sheet.getRow(idx);
+      if (row && h) row.height = h;
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${name}.xls`;
+    a.download = `${name}.xlsx`;
     document.body.appendChild(a);
     a.click();
     a.remove();
