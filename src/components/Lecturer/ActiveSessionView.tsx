@@ -30,6 +30,7 @@ export function ActiveSessionView({
   const [timeRemaining, setTimeRemaining] = useState('');
   const [isFetching, setIsFetching] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>('');
+  const [query, setQuery] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const generateQRCode = useCallback(async () => {
@@ -202,6 +203,22 @@ export function ActiveSessionView({
     }
   };
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredAttendees = normalizedQuery
+    ? attendees.filter((r) => {
+        const name = r.profiles?.full_name?.toLowerCase() || '';
+        const matric = r.profiles?.matric_number?.toLowerCase() || '';
+        const method = String(r.check_in_method || '').toLowerCase();
+        const sid = r.student_id?.toLowerCase() || '';
+        return (
+          name.includes(normalizedQuery) ||
+          matric.includes(normalizedQuery) ||
+          method.includes(normalizedQuery) ||
+          sid.includes(normalizedQuery)
+        );
+      })
+    : attendees;
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow-md p-6">
@@ -264,9 +281,17 @@ export function ActiveSessionView({
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">
-            Attendance List ({attendees.length})
+            Attendance List ({filteredAttendees.length})
           </h3>
           <div className="flex items-center space-x-3">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, matric, method"
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              style={{ minWidth: 220 }}
+            />
             <span className="text-xs text-gray-500">Last updated: {lastUpdated || '—'}</span>
             <button
               onClick={fetchAttendees}
@@ -297,7 +322,7 @@ export function ActiveSessionView({
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {attendees.map((record) => (
+              {filteredAttendees.map((record) => (
                 <tr key={record.id}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">

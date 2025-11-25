@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { decodeSessionData, isSessionExpired } from '../../utils/qrCode';
 import { saveOfflineCheckIn, getPendingCheckIns, removeCheckIn } from '../../utils/offlineSync';
-import { QrCode, Hash, CheckCircle, XCircle, Wifi, WifiOff, Upload, Image as ImageIcon } from 'lucide-react';
+import { QrCode, Hash, CheckCircle, XCircle, Wifi, WifiOff, Upload, Image as ImageIcon, Pencil, X } from 'lucide-react';
 import { QRScanner } from './QRScanner';
 
 export function AttendanceScanner() {
@@ -18,6 +18,15 @@ export function AttendanceScanner() {
   const [sigFile, setSigFile] = useState<File | null>(null);
   const [sigUploading, setSigUploading] = useState(false);
   const [sigMsg, setSigMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [pf, setPf] = useState({
+    full_name: profile?.full_name || '',
+    matric_number: profile?.matric_number || '',
+    department: profile?.department || '',
+    level: profile?.level || '',
+  });
+  const [pfSaving, setPfSaving] = useState(false);
+  const [pfMsg, setPfMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const checkPendingCheckIns = useCallback(async () => {
     const pending = await getPendingCheckIns();
@@ -224,6 +233,57 @@ export function AttendanceScanner() {
     }
   };
 
+  const openProfileModal = () => {
+    setPf({
+      full_name: profile?.full_name || '',
+      matric_number: profile?.matric_number || '',
+      department: profile?.department || '',
+      level: profile?.level || '',
+    });
+    setPfMsg(null);
+    setShowProfileModal(true);
+  };
+
+  const saveProfile = async () => {
+    if (!profile || pfSaving) return;
+    setPfMsg(null);
+    setPfSaving(true);
+    try {
+      const { error: updErr } = await supabase
+        .from('profiles')
+        .update({
+          full_name: pf.full_name.trim(),
+          matric_number: pf.matric_number.trim() || null,
+          department: pf.department.trim() || null,
+          level: pf.level.trim() || null,
+        })
+        .eq('id', profile.id);
+
+      if (updErr) {
+        setPfMsg({ type: 'error', text: 'Failed to update profile' });
+      } else {
+        try {
+          await supabase.auth.updateUser({
+            data: {
+              full_name: pf.full_name.trim(),
+              matric_number: pf.matric_number.trim() || null,
+              department: pf.department.trim() || null,
+              level: pf.level.trim() || null,
+            },
+          });
+        } catch {
+        }
+        await refreshProfile();
+        setPfMsg({ type: 'success', text: 'Profile updated' });
+        setShowProfileModal(false);
+      }
+    } catch {
+      setPfMsg({ type: 'error', text: 'An error occurred' });
+    } finally {
+      setPfSaving(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="bg-white rounded-lg shadow-md p-6">
@@ -231,19 +291,26 @@ export function AttendanceScanner() {
           <h2 className="text-xl font-semibold text-gray-900">
             Check In to Class
           </h2>
-          <div className="flex items-center">
-            {isOnline ? (
-              <div className="flex items-center text-green-600">
-                <Wifi className="w-5 h-5 mr-2" />
-                <span className="text-sm font-medium">Online</span>
-              </div>
-            ) : (
-              <div className="flex items-center text-yellow-600">
-                <WifiOff className="w-5 h-5 mr-2" />
-                <span className="text-sm font-medium">Offline</span>
-              </div>
-            )}
-          </div>
+                <div className="flex items-center">
+                  {isOnline ? (
+                    <div className="flex items-center text-green-600">
+                      <Wifi className="w-5 h-5 mr-2" />
+                      <span className="text-sm font-medium">Online</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-yellow-600">
+                      <WifiOff className="w-5 h-5 mr-2" />
+                      <span className="text-sm font-medium">Offline</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={openProfileModal}
+                    className="ml-3 inline-flex items-center px-3 py-1 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-100 text-sm"
+                  >
+                    <Pencil className="w-4 h-4 mr-2" />
+                    Edit Profile
+                  </button>
+                </div>
         </div>
 
         {pendingCount > 0 && (
@@ -296,10 +363,10 @@ export function AttendanceScanner() {
           </div>
         )}
 
-        {mode === 'qr' ? (
-          <QRScanner onScan={handleQRScan} />
-        ) : (
-          <form onSubmit={handlePINSubmit} className="space-y-4">
+      {mode === 'qr' ? (
+        <QRScanner onScan={handleQRScan} />
+      ) : (
+        <form onSubmit={handlePINSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Enter 6-digit PIN
@@ -329,6 +396,7 @@ export function AttendanceScanner() {
           </form>
         )}
       </div>
+
       <div className="bg-white rounded-lg shadow-md p-6 mt-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Update Signature</h3>
@@ -377,6 +445,84 @@ export function AttendanceScanner() {
           )}
         </div>
       </div>
+
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Edit Profile</h2>
+              <button onClick={() => setShowProfileModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            {pfMsg && (
+              <div className={`mb-4 p-3 rounded ${pfMsg.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>{pfMsg.text}</div>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={pf.full_name}
+                  onChange={(e) => setPf({ ...pf, full_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Matric Number</label>
+                <input
+                  type="text"
+                  value={pf.matric_number}
+                  onChange={(e) => setPf({ ...pf, matric_number: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                <input
+                  type="text"
+                  value={pf.department}
+                  onChange={(e) => setPf({ ...pf, department: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Level</label>
+                <select
+                  value={pf.level}
+                  onChange={(e) => setPf({ ...pf, level: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select Level</option>
+                  <option value="100">100 Level</option>
+                  <option value="200">200 Level</option>
+                  <option value="300">300 Level</option>
+                  <option value="400">400 Level</option>
+                  <option value="500">500 Level</option>
+                </select>
+              </div>
+              <div className="flex space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveProfile}
+                  disabled={pfSaving}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:bg-blue-400"
+                >
+                  {pfSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
