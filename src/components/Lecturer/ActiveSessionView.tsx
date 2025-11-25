@@ -86,6 +86,29 @@ export function ActiveSessionView({
       },
     })) as AttendanceRecord[];
 
+    // Fallback: populate missing matric numbers from profiles
+    const missingMatricIds = merged.filter(m => !m.profiles?.matric_number).map(m => m.student_id);
+    if (missingMatricIds.length > 0) {
+      const { data: profs } = await supabase
+        .from('profiles')
+        .select('id, matric_number')
+        .in('id', missingMatricIds);
+      if (profs && Array.isArray(profs)) {
+        const matricById: Record<string, string | null> = {};
+        for (const p of profs as { id: string; matric_number: string | null }[]) {
+          matricById[p.id] = p.matric_number ?? null;
+        }
+        merged = merged.map((m) => {
+          if (!m.profiles?.matric_number) {
+            const mm = matricById[m.student_id] ?? null;
+            return { ...m, profiles: { ...m.profiles!, matric_number: mm } };
+          }
+          return m;
+        });
+      }
+    }
+
+    // Fallback: populate missing signatures from storage
     const missingSigIds = merged.filter(m => !m.profiles?.signature_url).map(m => m.student_id);
     if (missingSigIds.length > 0) {
       const { data: sigObjs } = await supabase
