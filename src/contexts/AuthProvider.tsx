@@ -118,6 +118,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setPasswordRecovery(true);
           }
           setRecoveryTokens({ access_token, refresh_token });
+          try {
+            localStorage.setItem('recovery_tokens', JSON.stringify({ access_token, refresh_token }));
+          } catch {
+            void 0;
+          }
         } catch {
           void 0;
         }
@@ -330,6 +335,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setProfile(null);
       setPasswordRecovery(false);
+      try { localStorage.removeItem('recovery_tokens'); } catch { void 0; }
     }
   };
 
@@ -338,7 +344,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/#reset`,
       });
-      try { localStorage.setItem('last_reset_email', email); } catch { void 0; }
       if (error) throw error;
     } catch (err) {
       const msg = String((err as { message?: string })?.message || err);
@@ -367,6 +372,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data.user) {
         setPasswordRecovery(false);
         setRecoveryTokens(null);
+        try { localStorage.removeItem('recovery_tokens'); } catch { void 0; }
       }
     } catch (err) {
       const msg = String((err as { message?: string })?.message || err);
@@ -396,23 +402,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       access_token = params.get('access_token');
       refresh_token = params.get('refresh_token');
     }
-    if (code) {
-      try { 
-        await supabase.auth.exchangeCodeForSession(code); 
-        return;
-      } catch { void 0; }
-    } else if (access_token && refresh_token) {
-      try { 
-        await supabase.auth.setSession({ access_token, refresh_token }); 
-        return;
-      } catch { void 0; }
-    } else if (recoveryTokens) {
-      try { 
-        await supabase.auth.setSession({ access_token: recoveryTokens.access_token, refresh_token: recoveryTokens.refresh_token }); 
-        return;
-      } catch { void 0; }
+    if (!access_token || !refresh_token) {
+      try {
+        const cached = localStorage.getItem('recovery_tokens');
+        if (cached) {
+          const parsed = JSON.parse(cached) as { access_token: string; refresh_token: string };
+          access_token = parsed.access_token;
+          refresh_token = parsed.refresh_token;
+        }
+      } catch {
+        void 0;
+      }
     }
-    throw new Error('Recovery session missing. Reopen the reset link from your email.');
+    if (code) {
+      try { await supabase.auth.exchangeCodeForSession(code); } catch { void 0; }
+    } else if (access_token && refresh_token) {
+      try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { void 0; }
+    } else if (recoveryTokens) {
+      try { await supabase.auth.setSession({ access_token: recoveryTokens.access_token, refresh_token: recoveryTokens.refresh_token }); } catch { void 0; }
+    }
   };
 
   const value: AuthContextType = {
