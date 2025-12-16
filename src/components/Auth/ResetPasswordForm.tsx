@@ -1,14 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { KeyRound } from 'lucide-react';
 
 export function ResetPasswordForm() {
-  const { completePasswordReset, ensureRecoverySession } = useAuth();
+  const { completePasswordReset, ensureRecoverySession, requestPasswordReset } = useAuth();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [resending, setResending] = useState(false);
+
+  useEffect(() => {
+    try {
+      const last = localStorage.getItem('last_reset_email') || '';
+      if (last) setEmail(last);
+    } catch {
+      void 0;
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,6 +60,39 @@ export function ResetPasswordForm() {
         {success && (
           <div className="bg-green-50 text-green-700 p-3 rounded-md text-sm">
             {success}
+          </div>
+        )}
+        {error && /Recovery session missing/i.test(error) && (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Enter your account email"
+            />
+            <button
+              type="button"
+              disabled={resending || !email}
+              onClick={async () => {
+                setResending(true);
+                try {
+                  await requestPasswordReset(email.trim());
+                  setSuccess('A new reset link has been sent. Open it from your email.');
+                  setError('');
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : 'Failed to send reset link');
+                } finally {
+                  setResending(false);
+                }
+              }}
+              className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors disabled:bg-blue-400"
+            >
+              {resending ? 'Sending...' : 'Send New Reset Link'}
+            </button>
           </div>
         )}
         <div>
