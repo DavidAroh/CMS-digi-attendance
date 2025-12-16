@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [recoveryTokens, setRecoveryTokens] = useState<{ access_token: string; refresh_token: string } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -82,17 +83,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let refresh_token: string | null = null;
       let type: string | null = null;
       if (!code && typeof window !== 'undefined') {
-        const hash = window.location.hash || '';
-        if (hash) {
-          const idx = hash.indexOf('?');
-          const qs = idx >= 0 ? hash.slice(idx + 1) : '';
-          if (qs) {
-            const params = new URLSearchParams(qs);
-            code = params.get('code');
-            access_token = params.get('access_token');
-            refresh_token = params.get('refresh_token');
-            type = params.get('type');
-          }
+        const raw = window.location.hash || '';
+        const content = raw.startsWith('#') ? raw.slice(1) : raw;
+        const qs = content.includes('?') ? content.split('?')[1] : content;
+        if (qs) {
+          const params = new URLSearchParams(qs);
+          code = params.get('code');
+          access_token = params.get('access_token');
+          refresh_token = params.get('refresh_token');
+          type = params.get('type');
         }
       }
       if (code) {
@@ -118,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (type === 'recovery') {
             setPasswordRecovery(true);
           }
+          setRecoveryTokens({ access_token, refresh_token });
         } catch {
           void 0;
         }
@@ -350,17 +350,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const completePasswordReset = async (newPassword: string) => {
     try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess.session && recoveryTokens) {
+        try {
+          await supabase.auth.setSession({
+            access_token: recoveryTokens.access_token,
+            refresh_token: recoveryTokens.refresh_token,
+          });
+        } catch {
+          void 0;
+        }
+      }
       const { data, error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
       if (data.user) {
         setPasswordRecovery(false);
+        setRecoveryTokens(null);
       }
     } catch (err) {
       const msg = String((err as { message?: string })?.message || err);
       if (/Failed to fetch/i.test(msg)) {
         throw new Error('Network error: Check internet connection and Supabase URL/key configuration');
       }
-      throw err instanceof Error ? err : new Error('Password update failed');
+      const text = /Auth session missing/i.test(msg)
+        ? 'Recovery session missing. Reopen the reset link from your email.'
+        : 'Password update failed';
+      throw err instanceof Error ? new Error(text) : new Error(text);
     }
   };
 
