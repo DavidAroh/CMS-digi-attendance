@@ -414,12 +414,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         void 0;
       }
     }
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const verify = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        try { await supabase.auth.refreshSession(); } catch { void 0; }
+      }
+      return (await supabase.auth.getSession()).data.session;
+    };
     if (code) {
       try { await supabase.auth.exchangeCodeForSession(code); } catch { void 0; }
+      await wait(150);
     } else if (access_token && refresh_token) {
       try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { void 0; }
+      await wait(150);
     } else if (recoveryTokens) {
       try { await supabase.auth.setSession({ access_token: recoveryTokens.access_token, refresh_token: recoveryTokens.refresh_token }); } catch { void 0; }
+      await wait(150);
+    }
+    const ok = await verify();
+    if (!ok && access_token && refresh_token) {
+      try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { void 0; }
+      await wait(150);
+      await verify();
     }
   };
 
