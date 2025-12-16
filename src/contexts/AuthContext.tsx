@@ -22,6 +22,7 @@ export interface AuthContextType {
   requestPasswordReset: (email: string) => Promise<void>;
   completePasswordReset: (newPassword: string) => Promise<void>;
   passwordRecovery: boolean;
+  ensureRecoverySession: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);

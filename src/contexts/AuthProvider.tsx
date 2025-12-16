@@ -379,6 +379,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const ensureRecoverySession = async () => {
+    const { data: sess } = await supabase.auth.getSession();
+    if (sess.session) return;
+    const url = new URL(window.location.href);
+    let code = url.searchParams.get('code');
+    let access_token: string | null = null;
+    let refresh_token: string | null = null;
+    const raw = window.location.hash || '';
+    const content = raw.startsWith('#') ? raw.slice(1) : raw;
+    const qs = content.includes('?') ? content.split('?')[1] : content;
+    if (!code && qs) {
+      const params = new URLSearchParams(qs);
+      code = params.get('code');
+      access_token = params.get('access_token');
+      refresh_token = params.get('refresh_token');
+    }
+    if (code) {
+      try { await supabase.auth.exchangeCodeForSession(code); } catch { void 0; }
+    } else if (access_token && refresh_token) {
+      try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { void 0; }
+    } else if (recoveryTokens) {
+      try { await supabase.auth.setSession({ access_token: recoveryTokens.access_token, refresh_token: recoveryTokens.refresh_token }); } catch { void 0; }
+    }
+  };
+
   const value: AuthContextType = {
     user,
     profile,
@@ -391,6 +416,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     requestPasswordReset,
     completePasswordReset,
     passwordRecovery,
+    ensureRecoverySession,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

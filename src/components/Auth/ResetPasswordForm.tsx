@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { KeyRound } from 'lucide-react';
 
 export function ResetPasswordForm() {
-  const { completePasswordReset } = useAuth();
+  const { completePasswordReset, ensureRecoverySession } = useAuth();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -24,6 +24,7 @@ export function ResetPasswordForm() {
     }
     setLoading(true);
     try {
+      await ensureRecoverySession();
       await completePasswordReset(password);
       setSuccess('Password updated. You can now sign in with your new password.');
     } catch (err) {
