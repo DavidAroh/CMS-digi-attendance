@@ -78,6 +78,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       const url = new URL(window.location.href);
       let code = url.searchParams.get('code');
+      let access_token: string | null = null;
+      let refresh_token: string | null = null;
+      let type: string | null = null;
       if (!code && typeof window !== 'undefined') {
         const hash = window.location.hash || '';
         if (hash) {
@@ -86,6 +89,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (qs) {
             const params = new URLSearchParams(qs);
             code = params.get('code');
+            access_token = params.get('access_token');
+            refresh_token = params.get('refresh_token');
+            type = params.get('type');
           }
         }
       }
@@ -98,6 +104,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } else if (typeof window !== 'undefined') {
             const clean = window.location.origin + window.location.pathname + (window.location.hash.split('?')[0] || '');
             window.history.replaceState({}, '', clean);
+          }
+        } catch {
+          void 0;
+        }
+      } else if (access_token && refresh_token) {
+        try {
+          await supabase.auth.setSession({ access_token, refresh_token });
+          if (typeof window !== 'undefined') {
+            const clean = window.location.origin + window.location.pathname + (window.location.hash.split('?')[0] || '');
+            window.history.replaceState({}, '', clean);
+          }
+          if (type === 'recovery') {
+            setPasswordRecovery(true);
           }
         } catch {
           void 0;
