@@ -19,6 +19,9 @@ export interface AuthContextType {
   }, signatureFile?: File | null) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  completePasswordReset: (newPassword: string) => Promise<void>;
+  passwordRecovery: boolean;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);

@@ -272,6 +272,7 @@ export function AttendanceScanner() {
             },
           });
         } catch {
+          void 0;
         }
         await refreshProfile();
         setPfMsg({ type: 'success', text: 'Profile updated' });

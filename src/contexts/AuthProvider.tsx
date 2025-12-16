@@ -72,11 +72,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
+
   useEffect(() => {
+    (async () => {
+      const url = new URL(window.location.href);
+      const code = url.searchParams.get('code');
+      if (code) {
+        try {
+          await supabase.auth.exchangeCodeForSession(code);
+          url.searchParams.delete('code');
+          window.history.replaceState({}, '', url.toString());
+        } catch {
+          void 0;
+        }
+      }
+    })();
     supabase.auth.getSession().then(({ data: { session } }) => {
       (async () => {
         setSession(session);
         setUser(session?.user ?? null);
+        setPasswordRecovery(false);
         if (session?.user) {
           const profileData = await fetchProfile(session.user.id);
           setProfile(profileData);
@@ -118,10 +134,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       (async () => {
         setSession(session);
         setUser(session?.user ?? null);
+        setPasswordRecovery(event === 'PASSWORD_RECOVERY');
         if (session?.user) {
           let profileData = await fetchProfile(session.user.id);
           if (!profileData) {
@@ -263,6 +280,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(null);
   };
 
+  const requestPasswordReset = async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset`,
+      });
+      if (error) throw error;
+    } catch (err) {
+      const msg = String((err as { message?: string })?.message || err);
+      if (/Failed to fetch/i.test(msg)) {
+        throw new Error('Network error: Check internet connection and Supabase URL/key configuration');
+      }
+      throw err instanceof Error ? err : new Error('Password reset request failed');
+    }
+  };
+
+  const completePasswordReset = async (newPassword: string) => {
+    try {
+      const { data, error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      if (data.user) {
+        setPasswordRecovery(false);
+      }
+    } catch (err) {
+      const msg = String((err as { message?: string })?.message || err);
+      if (/Failed to fetch/i.test(msg)) {
+        throw new Error('Network error: Check internet connection and Supabase URL/key configuration');
+      }
+      throw err instanceof Error ? err : new Error('Password update failed');
+    }
+  };
+
   const value: AuthContextType = {
     user,
     profile,
@@ -272,6 +320,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signOut,
     refreshProfile,
+    requestPasswordReset,
+    completePasswordReset,
+    passwordRecovery,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
