@@ -77,12 +77,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       const url = new URL(window.location.href);
-      const code = url.searchParams.get('code');
+      let code = url.searchParams.get('code');
+      if (!code && typeof window !== 'undefined') {
+        const hash = window.location.hash || '';
+        if (hash) {
+          const idx = hash.indexOf('?');
+          const qs = idx >= 0 ? hash.slice(idx + 1) : '';
+          if (qs) {
+            const params = new URLSearchParams(qs);
+            code = params.get('code');
+          }
+        }
+      }
       if (code) {
         try {
           await supabase.auth.exchangeCodeForSession(code);
-          url.searchParams.delete('code');
-          window.history.replaceState({}, '', url.toString());
+          if (url.searchParams.has('code')) {
+            url.searchParams.delete('code');
+            window.history.replaceState({}, '', url.toString());
+          } else if (typeof window !== 'undefined') {
+            const clean = window.location.origin + window.location.pathname + (window.location.hash.split('?')[0] || '');
+            window.history.replaceState({}, '', clean);
+          }
         } catch {
           void 0;
         }
@@ -283,7 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const requestPasswordReset = async (email: string) => {
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset`,
+        redirectTo: `${window.location.origin}/#reset`,
       });
       if (error) throw error;
     } catch (err) {

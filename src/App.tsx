@@ -10,7 +10,7 @@ import { AdminDashboard } from './components/Admin/AdminDashboard';
 
 function AuthenticatedApp() {
   const { profile, loading, passwordRecovery } = useAuth();
-  const isResetRoute = typeof window !== 'undefined' && window.location.pathname === '/reset';
+  const isResetRoute = typeof window !== 'undefined' && (window.location.pathname === '/reset' || (window.location.hash || '').startsWith('#reset'));
 
   if (loading) {
     return (
@@ -43,7 +43,7 @@ function AuthenticatedApp() {
 function AuthScreen() {
   const [showSignUp, setShowSignUp] = useState(false);
   const { passwordRecovery } = useAuth();
-  const isResetRoute = typeof window !== 'undefined' && window.location.pathname === '/reset';
+  const isResetRoute = typeof window !== 'undefined' && (window.location.pathname === '/reset' || (window.location.hash || '').startsWith('#reset'));
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
