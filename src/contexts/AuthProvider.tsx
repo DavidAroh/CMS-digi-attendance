@@ -291,9 +291,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    setProfile(null);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (sess.session) {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+      } else {
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {
+          const msg = String((e as { message?: string })?.message || e);
+          if (!/Auth session missing/i.test(msg)) {
+            throw e instanceof Error ? e : new Error('Sign out failed');
+          }
+        }
+      }
+    } finally {
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setPasswordRecovery(false);
+    }
   };
 
   const requestPasswordReset = async (email: string) => {
