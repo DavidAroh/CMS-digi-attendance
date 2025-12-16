@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { KeyRound } from 'lucide-react';
 
@@ -11,6 +11,7 @@ export function ResetPasswordForm() {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [resending, setResending] = useState(false);
+  const attemptedRecovery = useRef(false);
 
   useEffect(() => {
     try {
@@ -39,7 +40,20 @@ export function ResetPasswordForm() {
       await completePasswordReset(password);
       setSuccess('Password updated. You can now sign in with your new password.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update password');
+      const msg = err instanceof Error ? err.message : 'Failed to update password';
+      if (/Recovery session missing/i.test(msg) && !attemptedRecovery.current) {
+        attemptedRecovery.current = true;
+        try {
+          await ensureRecoverySession();
+          await completePasswordReset(password);
+          setSuccess('Password updated. You can now sign in with your new password.');
+          setError('');
+        } catch (e2) {
+          setError(e2 instanceof Error ? e2.message : 'Failed to update password');
+        }
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -83,6 +97,7 @@ export function ResetPasswordForm() {
                   await requestPasswordReset(email.trim());
                   setSuccess('A new reset link has been sent. Open it from your email.');
                   setError('');
+                  try { localStorage.setItem('last_reset_email', email.trim()); } catch { void 0; }
                 } catch (e) {
                   setError(e instanceof Error ? e.message : 'Failed to send reset link');
                 } finally {
