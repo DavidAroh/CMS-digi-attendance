@@ -397,12 +397,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refresh_token = params.get('refresh_token');
     }
     if (code) {
-      try { await supabase.auth.exchangeCodeForSession(code); } catch { void 0; }
+      try { 
+        await supabase.auth.exchangeCodeForSession(code); 
+        return;
+      } catch { void 0; }
     } else if (access_token && refresh_token) {
-      try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { void 0; }
+      try { 
+        await supabase.auth.setSession({ access_token, refresh_token }); 
+        return;
+      } catch { void 0; }
     } else if (recoveryTokens) {
-      try { await supabase.auth.setSession({ access_token: recoveryTokens.access_token, refresh_token: recoveryTokens.refresh_token }); } catch { void 0; }
+      try { 
+        await supabase.auth.setSession({ access_token: recoveryTokens.access_token, refresh_token: recoveryTokens.refresh_token }); 
+        return;
+      } catch { void 0; }
     }
+    throw new Error('Recovery session missing. Reopen the reset link from your email.');
   };
 
   const value: AuthContextType = {
