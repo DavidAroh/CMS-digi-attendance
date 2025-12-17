@@ -81,27 +81,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let code = url.searchParams.get('code');
       let access_token: string | null = null;
       let refresh_token: string | null = null;
-      let type: string | null = null;
+      let token_hash: string | null = url.searchParams.get('token_hash');
+      let token: string | null = url.searchParams.get('token');
+      let emailParam: string | null = url.searchParams.get('email');
       if (!code && typeof window !== 'undefined') {
         const raw = window.location.hash || '';
         const content = raw.startsWith('#') ? raw.slice(1) : raw;
-        const qs = content.includes('?') ? content.split('?')[1] : content;
-        if (qs) {
-          const params = new URLSearchParams(qs);
+        const parts = content.split('#');
+        const candidate = content.includes('?') ? content.split('?')[1] : parts[parts.length - 1] || '';
+        if (candidate) {
+          const params = new URLSearchParams(candidate);
           code = params.get('code');
           access_token = params.get('access_token');
           refresh_token = params.get('refresh_token');
-          type = params.get('type');
+          token_hash = token_hash || params.get('token_hash');
+          token = token || params.get('token');
+          emailParam = emailParam || params.get('email');
         }
       }
       if (code) {
         try {
           await supabase.auth.exchangeCodeForSession(code);
+          try { await supabase.auth.refreshSession(); } catch { void 0; }
+          setPasswordRecovery(true);
           if (url.searchParams.has('code')) {
             url.searchParams.delete('code');
             window.history.replaceState({}, '', url.toString());
           } else if (typeof window !== 'undefined') {
-            const clean = window.location.origin + window.location.pathname + (window.location.hash.split('?')[0] || '');
+            const rawHash = window.location.hash || '';
+            const base = rawHash ? rawHash.slice(1).split('#')[0] : '';
+            const anchor = base ? `#${base}` : '';
+            const clean = window.location.origin + window.location.pathname + anchor;
             window.history.replaceState({}, '', clean);
           }
         } catch {
@@ -110,13 +120,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (access_token && refresh_token) {
         try {
           await supabase.auth.setSession({ access_token, refresh_token });
+          try { await supabase.auth.refreshSession(); } catch { void 0; }
           if (typeof window !== 'undefined') {
-            const clean = window.location.origin + window.location.pathname + (window.location.hash.split('?')[0] || '');
+            const rawHash = window.location.hash || '';
+            const base = rawHash ? rawHash.slice(1).split('#')[0] : '';
+            const anchor = base ? `#${base}` : '';
+            const clean = window.location.origin + window.location.pathname + anchor;
             window.history.replaceState({}, '', clean);
           }
-          if (type === 'recovery') {
-            setPasswordRecovery(true);
-          }
+          setPasswordRecovery(true);
           setRecoveryTokens({ access_token, refresh_token });
           try {
             localStorage.setItem('recovery_tokens', JSON.stringify({ access_token, refresh_token }));
@@ -126,13 +138,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {
           void 0;
         }
+      } else if (token_hash || (token && emailParam)) {
+        try {
+          if (token_hash) {
+            await supabase.auth.verifyOtp({ type: 'recovery', token_hash });
+          } else if (token && emailParam) {
+            await supabase.auth.verifyOtp({ type: 'recovery', token, email: emailParam });
+          }
+          try { await supabase.auth.refreshSession(); } catch { void 0; }
+          if (typeof window !== 'undefined') {
+            const rawHash = window.location.hash || '';
+            const base = rawHash ? rawHash.slice(1).split('#')[0] : '';
+            const anchor = base ? `#${base}` : '';
+            const clean = window.location.origin + window.location.pathname + anchor;
+            window.history.replaceState({}, '', clean);
+          }
+          setPasswordRecovery(true);
+        } catch {
+          void 0;
+        }
       }
     })();
     supabase.auth.getSession().then(({ data: { session } }) => {
       (async () => {
         setSession(session);
         setUser(session?.user ?? null);
-        setPasswordRecovery(false);
+        const isResetRoute = typeof window !== 'undefined' && (window.location.pathname === '/reset' || (window.location.hash || '').startsWith('#reset'));
+        setPasswordRecovery(isResetRoute ? true : false);
         if (session?.user) {
           const profileData = await fetchProfile(session.user.id);
           setProfile(profileData);
@@ -178,7 +210,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (async () => {
         setSession(session);
         setUser(session?.user ?? null);
-        setPasswordRecovery(event === 'PASSWORD_RECOVERY');
+        const isResetRoute = typeof window !== 'undefined' && (window.location.pathname === '/reset' || (window.location.hash || '').startsWith('#reset'));
+        setPasswordRecovery(event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && isResetRoute));
         if (session?.user) {
           let profileData = await fetchProfile(session.user.id);
           if (!profileData) {
@@ -339,18 +372,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const requestPasswordReset = async (email: string) => {
+  const requestForgotPassword = async (email: string) => {
+    const redirect = `${window.location.origin}/#reset`;
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/#reset`,
+        redirectTo: redirect,
       });
       if (error) throw error;
-    } catch (err) {
-      const msg = String((err as { message?: string })?.message || err);
-      if (/Failed to fetch/i.test(msg)) {
-        throw new Error('Network error: Check internet connection and Supabase URL/key configuration');
+      try { localStorage.setItem('last_reset_email', email.trim()); } catch { void 0; }
+      return;
+    } catch {
+      try {
+        const { error: otpError } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: redirect },
+        });
+        if (otpError) throw otpError;
+        try { localStorage.setItem('last_reset_email', email.trim()); } catch { void 0; }
+        return;
+      } catch (fallbackErr) {
+        const msg = String((fallbackErr as { message?: string })?.message || fallbackErr);
+        if (/Failed to fetch/i.test(msg)) {
+          throw new Error('Network error: Check internet connection and Supabase URL/key configuration');
+        }
+        throw fallbackErr instanceof Error ? fallbackErr : new Error('Failed to send reset email');
       }
-      throw err instanceof Error ? err : new Error('Password reset request failed');
     }
   };
 
@@ -393,14 +439,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let code = url.searchParams.get('code');
     let access_token: string | null = null;
     let refresh_token: string | null = null;
+    let token_hash: string | null = url.searchParams.get('token_hash');
+    let token: string | null = url.searchParams.get('token');
+    let emailParam: string | null = url.searchParams.get('email');
     const raw = window.location.hash || '';
     const content = raw.startsWith('#') ? raw.slice(1) : raw;
-    const qs = content.includes('?') ? content.split('?')[1] : content;
-    if (!code && qs) {
-      const params = new URLSearchParams(qs);
+    const parts = content.split('#');
+    const candidate = content.includes('?') ? content.split('?')[1] : parts[parts.length - 1] || '';
+    if (!code && candidate) {
+      const params = new URLSearchParams(candidate);
       code = params.get('code');
       access_token = params.get('access_token');
       refresh_token = params.get('refresh_token');
+      token_hash = token_hash || params.get('token_hash');
+      token = token || params.get('token');
+      emailParam = emailParam || params.get('email');
     }
     if (!access_token || !refresh_token) {
       try {
@@ -428,6 +481,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else if (access_token && refresh_token) {
       try { await supabase.auth.setSession({ access_token, refresh_token }); } catch { void 0; }
       await wait(150);
+    } else if (token_hash || (token && emailParam)) {
+      try {
+        if (token_hash) {
+          await supabase.auth.verifyOtp({ type: 'recovery', token_hash });
+        } else if (token && emailParam) {
+          await supabase.auth.verifyOtp({ type: 'recovery', token, email: emailParam });
+        }
+      } catch {
+        void 0;
+      }
+      await wait(150);
     } else if (recoveryTokens) {
       try { await supabase.auth.setSession({ access_token: recoveryTokens.access_token, refresh_token: recoveryTokens.refresh_token }); } catch { void 0; }
       await wait(150);
@@ -438,6 +502,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await wait(150);
       await verify();
     }
+    try { setPasswordRecovery(true); } catch { void 0; }
   };
 
   const value: AuthContextType = {
@@ -449,7 +514,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signOut,
     refreshProfile,
-    requestPasswordReset,
+    requestForgotPassword,
     completePasswordReset,
     passwordRecovery,
     ensureRecoverySession,

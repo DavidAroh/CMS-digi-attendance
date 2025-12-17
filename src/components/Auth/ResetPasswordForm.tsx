@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { KeyRound } from 'lucide-react';
 
 export function ResetPasswordForm() {
-  const { completePasswordReset, ensureRecoverySession, requestPasswordReset } = useAuth();
+  const { completePasswordReset, ensureRecoverySession, requestForgotPassword } = useAuth();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
@@ -94,7 +94,7 @@ export function ResetPasswordForm() {
               onClick={async () => {
                 setResending(true);
                 try {
-                  await requestPasswordReset(email.trim());
+                  await requestForgotPassword(email.trim());
                   setSuccess('A new reset link has been sent. Open it from your email.');
                   setError('');
                   try { localStorage.setItem('last_reset_email', email.trim()); } catch { void 0; }

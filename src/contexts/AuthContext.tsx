@@ -19,7 +19,7 @@ export interface AuthContextType {
   }, signatureFile?: File | null) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
-  requestPasswordReset: (email: string) => Promise<void>;
+  requestForgotPassword: (email: string) => Promise<void>;
   completePasswordReset: (newPassword: string) => Promise<void>;
   passwordRecovery: boolean;
   ensureRecoverySession: () => Promise<void>;

@@ -7,7 +7,7 @@ export function LoginForm({ onToggle }: { onToggle: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { signIn, requestPasswordReset } = useAuth();
+  const { signIn, requestForgotPassword } = useAuth();
   const [showForgot, setShowForgot] = useState(false);
   const [success, setSuccess] = useState("");
 
@@ -40,8 +40,9 @@ export function LoginForm({ onToggle }: { onToggle: () => void }) {
             setSuccess("");
             setLoading(true);
             try {
-              await requestPasswordReset(email);
+              await requestForgotPassword(email);
               setSuccess("Check your email for a link to reset your password.");
+              try { localStorage.setItem('last_reset_email', email.trim()); } catch { void 0; }
             } catch (err) {
               setError(
                 err instanceof Error
@@ -81,7 +82,7 @@ export function LoginForm({ onToggle }: { onToggle: () => void }) {
             disabled={loading}
             className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors disabled:bg-blue-400"
           >
-            {loading ? "Sending..." : "Send Reset Link"}
+            {loading ? "Sending..." : "Send Sign-In Link"}
           </button>
           <p className="mt-2 text-center text-sm text-gray-600">
             Remembered your password?{" "}
